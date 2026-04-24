@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClimateVision</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --neon-cyan: #00f2ff;
+            --glass-bg: rgba(20, 20, 30, 0.4);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: #ffffff;
+            --text-muted: #94a3b8;
+            --card-border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0; padding: 0; min-height: 100vh;
+            color: var(--text-main); background: #0f172a;
+            transition: background 1.5s ease;
+            display: flex; align-items: center; justify-content: center;
+            overflow-x: hidden;
+        }
+
+        /* --- BACKGROUNDS (Darker Clear Sky) --- */
+        .bg-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: linear-gradient(135deg, #0f172a, #1e293b); transition: opacity 1s ease; }
+        body.weather-clear .bg-layer { background: linear-gradient(135deg, #103452, #0a1525); } 
+        body.weather-clouds .bg-layer { background: linear-gradient(135deg, #2c3e50, #4ca1af); }
+        body.weather-rain .bg-layer { background: linear-gradient(135deg, #232526, #414345); }
+        body.weather-snow .bg-layer { background: linear-gradient(135deg, #E0EAFC, #CFDEF3); }
+
+        .noise-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; opacity: 0.05; background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E"); pointer-events: none; }
+
+        .container { width: 100%; max-width: 1000px; padding: 40px 20px; animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+        /* --- SEARCH BAR --- */
+        .search-box { 
+            display: flex; gap: 15px; justify-content: center; margin-bottom: 40px; 
+            position: relative; z-index: 10;
+            flex-wrap: wrap;
+        }
+        
+        input {
+            padding: 15px 25px; border-radius: 50px; border: 1px solid var(--card-border);
+            background: rgba(0, 0, 0, 0.3); color: white; width: 100%; max-width: 300px;
+            font-size: 16px; outline: none; transition: all 0.3s ease; backdrop-filter: blur(10px);
+            font-family: 'Inter', sans-serif;
+        }
+        
+        input:focus { border-color: var(--neon-cyan); box-shadow: 0 0 15px rgba(0, 242, 255, 0.2); }
+        
+        button {
+            padding: 15px 30px; border-radius: 50px; border: none;
+            background: linear-gradient(45deg, var(--neon-cyan), #00c3ff); color: #000;
+            font-weight: 600; cursor: pointer; transition: transform 0.2s;
+            text-transform: uppercase; letter-spacing: 1px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+        }
+        
+        button:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(0, 242, 255, 0.4); }
+        
+        .btn-locate {
+            padding: 15px 20px; background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid var(--neon-cyan);
+        }
+        
+        .btn-csv {
+            background: linear-gradient(45deg, #bc13fe, #6a00ff); color: white;
+        }
+        
+        .btn-locate:hover { background: var(--neon-cyan); color: black; }
+
+        /* --- DASHBOARD GRID --- */
+        .dashboard-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 25px; margin-bottom: 30px; }
+        .glass-panel { background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); border-radius: 24px; padding: 30px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2); }
+
+        .hero-card { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; position: relative; overflow: hidden; }
+        .glow-bg { position: absolute; width: 150px; height: 150px; background: radial-gradient(circle, rgba(0,242,255,0.4) 0%, rgba(0,0,0,0) 70%); border-radius: 50%; filter: blur(20px); z-index: 0; top: 20%; }
+        #weather-icon { width: 180px; height: 180px; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.3)); animation: float 6s ease-in-out infinite; z-index: 1; }
+        .temp-display { font-family: 'JetBrains Mono', monospace; font-size: 5rem; font-weight: 700; background: linear-gradient(to bottom, #fff, #a5b4fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 10px 0 0 0; letter-spacing: -2px; z-index: 1; }
+        .weather-status { font-size: 1.5rem; color: var(--neon-cyan); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px; z-index: 1; }
+        .location-name { font-size: 1rem; color: var(--text-muted); z-index: 1; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+        .stat-card { background: rgba(255, 255, 255, 0.03); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.2s, background 0.2s; border: 1px solid rgba(255,255,255,0.05); }
+        .stat-card:hover { transform: translateY(-3px); background: rgba(255, 255, 255, 0.07); }
+        .stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 10px; }
+        .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 700; color: white; }
+        .stat-unit { font-size: 0.9rem; color: var(--neon-cyan); margin-left: 2px; }
+
+        /* AQI Specific */
+        #val-aqi { transition: color 0.5s ease; }
+
+        /* --- CHARTS VERTICAL LAYOUT --- */
+        .charts-wrapper { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 30px; 
+            margin-top: 20px; 
+            width: 100%;
+        }
+        
+        .chart-box { 
+            height: 320px; 
+            width: 100%; 
+            position: relative; 
+        }
+
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) { .stats-grid { grid-template-columns: 1fr; } .search-box { flex-direction: column; } input { max-width: 100%; } }
+        #errorMsg { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(255, 59, 59, 0.9); padding: 10px 20px; border-radius: 30px; font-weight: 600; font-size: 0.9rem; z-index: 100; display: none; box-shadow: 0 10px 30px rgba(255, 0, 0, 0.3); }
+    </style>
+</head>
+<body class="default">
+    <div class="bg-layer"></div>
+    <div class="noise-overlay"></div>
+    <div id="errorMsg">Error</div>
+
+    <div class="container">
+        <div class="search-box">
+            <input type="text" id="cityInput" placeholder="Enter City Name (e.g., New York)...">
+            <button onclick="handleSearch()">Analyze</button>
+            <button class="btn-locate" onclick="handleLocation()" title="Use My Location">📍</button>
+            <button class="btn-csv" onclick="downloadCSV()" title="Download 10y Past + 5y Future">📥 CSV</button>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="glass-panel hero-card">
+                <div class="glow-bg"></div>
+                <div class="weather-status" id="weather-desc">ClimateVision</div>
+                <div class="location-name" id="loc-name">System Ready</div>
+                <img id="weather-icon" src="https://openweathermap.org/img/wn/04d@4x.png" alt="Icon">
+                <div class="temp-display"><span id="val-temp">--</span>°</div>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card"><span class="stat-label">Humidity</span><div class="stat-value"><span id="val-hum">--</span><span class="stat-unit">%</span></div></div>
+                <div class="stat-card"><span class="stat-label">Pressure</span><div class="stat-value"><span id="val-press">--</span><span class="stat-unit">hPa</span></div></div>
+                <div class="stat-card"><span class="stat-label">Feels Like</span><div class="stat-value"><span id="val-feels">--</span><span class="stat-unit">°</span></div></div>
+                <div class="stat-card"><span class="stat-label">Wind Spd</span><div class="stat-value"><span id="val-wind">--</span><span class="stat-unit">m/s</span></div></div>
+                <div class="stat-card"><span class="stat-label">Sunrise</span><div class="stat-value" id="val-sunrise" style="font-size: 1.4rem;">--:--</div></div>
+                <div class="stat-card"><span class="stat-label">Sunset</span><div class="stat-value" id="val-sunset" style="font-size: 1.4rem;">--:--</div></div>
+                <div class="stat-card" style="grid-column: span 2;">
+                    <span class="stat-label">Air Quality (AQI)</span>
+                    <div class="stat-value"><span id="val-aqi">--</span><span class="stat-unit" id="aqi-desc" style="font-size: 0.8rem; vertical-align: middle; margin-left: 10px;">-</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="charts-wrapper">
+            <div class="glass-panel chart-box"><canvas id="tempChart"></canvas></div>
+            <div class="glass-panel chart-box"><canvas id="humChart"></canvas></div>
+            <div class="glass-panel chart-box"><canvas id="pressChart"></canvas></div>
+        </div>
+    </div>
+
+    <script>
+        let chartTemp, chartHum, chartPress;
+        let currentLat = null;
+        let currentLon = null;
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.color = "#a0a0a5";
+
+        document.getElementById('cityInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') handleSearch(); });
+
+        async function handleSearch() {
+            const city = document.getElementById('cityInput').value;
+            if(!city) return;
+            showError(false);
+            try {
+                const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${city}&count=1&language=en&format=json`);
+                const geoData = await geoRes.json();
+                if(!geoData.results) { showError("City not found"); return; }
+                const { latitude, longitude, name, country } = geoData.results[0];
+                document.getElementById('loc-name').innerText = `${name}, ${country}`;
+                currentLat = latitude;
+                currentLon = longitude;
+                fetchWeather(latitude, longitude);
+            } catch (e) { showError("Connection Error"); }
+        }
+
+        function handleLocation() {
+            if (!navigator.geolocation) return;
+            showError("Locating...", "#00f2ff");
+            navigator.geolocation.getCurrentPosition(
+                (pos) => { 
+                    showError(false); 
+                    document.getElementById('loc-name').innerText = "GPS Location"; 
+                    currentLat = pos.coords.latitude;
+                    currentLon = pos.coords.longitude;
+                    fetchWeather(pos.coords.latitude, pos.coords.longitude); 
+                },
+                () => showError("Location denied"), { enableHighAccuracy: true }
+            );
+        }
+
+        async function fetchWeather(lat, lon) {
+            try {
+                const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,surface_pressure,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,surface_pressure,precipitation_probability,precipitation&daily=sunrise,sunset&timezone=auto&past_days=1&forecast_days=7`;
+                const res = await fetch(url);
+                const data = await res.json();
+                updateUI(data);
+                updateCharts(data);
+
+                const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5&timezone=auto`;
+                const aqiRes = await fetch(aqiUrl);
+                const aqiData = await aqiRes.json();
+                if(aqiData.current) {
+                    updateAQI(aqiData.current.us_aqi);
+                }
+
+            } catch (e) { console.error(e); }
+        }
+
+        function updateAQI(val) {
+            const el = document.getElementById('val-aqi');
+            const desc = document.getElementById('aqi-desc');
+            el.innerText = val;
+            
+            let color = "#fff";
+            let status = "";
+            
+            if (val <= 50) { color = "#00e400"; status = "😊 Good"; }
+            else if (val <= 100) { color = "#ffff00"; status = "😐 Moderate"; }
+            else if (val <= 150) { color = "#ff7e00"; status = "😷 Sensitive"; }
+            else if (val <= 200) { color = "#ff0000"; status = "😷 Unhealthy"; }
+            else { color = "#8f3f97"; status = "💀 Hazardous"; }
+
+            el.style.color = color;
+            desc.style.color = color;
+            desc.innerText = status;
+        }
+
+        // --- CSV DOWNLOAD ---
+        async function downloadCSV() {
+            if (!currentLat || !currentLon) {
+                showError("Search for a city first!", "#bc13fe");
+                return;
+            }
+
+            const btn = document.querySelector('.btn-csv');
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Requesting...";
+            
+            try {
+                const now = new Date();
+                const endDateObj = new Date(now);
+                endDateObj.setDate(now.getDate() - 5); 
+                
+                const startDateObj = new Date(endDateObj);
+                startDateObj.setFullYear(startDateObj.getFullYear() - 10);
+                
+                const cutoffDateObj = new Date(endDateObj);
+                cutoffDateObj.setFullYear(cutoffDateObj.getFullYear() - 5);
+                const cutoffTime = cutoffDateObj.getTime();
+                
+                const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                
+                const archiveUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${currentLat}&longitude=${currentLon}&start_date=${formatDate(startDateObj)}&end_date=${formatDate(endDateObj)}&hourly=temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,precipitation&timezone=auto`;
+                
+                showError("Fetching Full Data (10y+5y)...", "#bc13fe");
+                const res = await fetch(archiveUrl);
+                if (!res.ok) throw new Error("API Error");
+                const data = await res.json();
+                if (!data.hourly) throw new Error("No data");
+
+                const times = data.hourly.time;
+                const temps = data.hourly.temperature_2m;
+                const hums = data.hourly.relative_humidity_2m;
+                const press = data.hourly.surface_pressure;
+                const wind = data.hourly.wind_speed_10m;
+                const rain = data.hourly.precipitation;
+                const totalItems = times.length;
+                
+                let csvRows = ["Type,Day,Date,Time,Temperature(C),Humidity(%),Pressure(hPa),Wind Speed(m/s),Rain(mm)"];
+                const chunkSize = 5000;
+                let index = 0;
+
+                function processChunk() {
+                    const chunkEnd = Math.min(index + chunkSize, totalItems);
+                    for (let i = index; i < chunkEnd; i++) {
+                        const t = times[i];
+                        if (temps[i] === null) continue;
+
+                        const dateObj = new Date(t);
+                        const day = String(dateObj.getDate()).padStart(2, '0');
+                        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                        const year = dateObj.getFullYear();
+                        const dateStr = `${day}/${month}/${year}`;
+                        const dayName = dateObj.toLocaleDateString('en-GB', { weekday: 'long' });
+                        const timeStr = dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        
+                        const p = press[i] !== null ? press[i] : 0;
+                        const w = wind[i] !== null ? wind[i] : 0;
+                        const r = rain[i] !== null ? rain[i] : 0;
+
+                        csvRows.push(`Historical,${dayName},${dateStr},${timeStr},${temps[i]},${hums[i]},${p},${w},${r}`);
+
+                        if (dateObj.getTime() >= cutoffTime) {
+                            const futureDate = new Date(dateObj);
+                            futureDate.setFullYear(futureDate.getFullYear() + 5); 
+                            const fDay = String(futureDate.getDate()).padStart(2, '0');
+                            const fMonth = String(futureDate.getMonth() + 1).padStart(2, '0');
+                            const fYear = futureDate.getFullYear();
+                            const fDateStr = `${fDay}/${fMonth}/${fYear}`;
+                            const fDayName = futureDate.toLocaleDateString('en-GB', { weekday: 'long' });
+                            csvRows.push(`Projected Future,${fDayName},${fDateStr},${timeStr},${temps[i]},${hums[i]},${p},${w},${r}`);
+                        }
+                    }
+                    index = chunkEnd;
+                    const progress = Math.round((index / totalItems) * 100);
+                    btn.innerText = `Processing ${progress}%`;
+
+                    if (index < totalItems) {
+                        setTimeout(processChunk, 0);
+                    } else {
+                        finalizeDownload();
+                    }
+                }
+
+                function finalizeDownload() {
+                    const csvString = csvRows.join("\n");
+                    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.setAttribute("href", url);
+                    link.setAttribute("download", `weather_data_${document.getElementById('loc-name').innerText.replace(/\s/g, '_')}.csv`);
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    showError(false);
+                    btn.innerText = "✅ Done";
+                    setTimeout(() => btn.innerText = originalText, 3000);
+                }
+
+                processChunk();
+
+            } catch (e) {
+                console.error(e);
+                showError("Error: " + e.message);
+                btn.innerText = "❌ Failed";
+                setTimeout(() => btn.innerText = originalText, 3000);
+            }
+        }
+
+        function updateUI(data) {
+            const current = data.current;
+            const daily = data.daily;
+            animateValue("val-temp", parseFloat(document.getElementById("val-temp").innerText) || 0, current.temperature_2m, 1000);
+            document.getElementById('val-hum').innerText = current.relative_humidity_2m;
+            document.getElementById('val-press').innerText = current.surface_pressure.toFixed(0);
+            document.getElementById('val-feels').innerText = current.apparent_temperature.toFixed(1);
+            document.getElementById('val-wind').innerText = (current.wind_speed_10m / 3.6).toFixed(1);
+            
+            const formatTime = (iso) => new Date(iso).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            document.getElementById('val-sunrise').innerText = formatTime(daily.sunrise[0]);
+            document.getElementById('val-sunset').innerText = formatTime(daily.sunset[0]);
+
+            const status = decodeWeather(current.weather_code);
+            document.getElementById('weather-desc').innerText = status.desc;
+            document.getElementById('weather-icon').src = status.icon(current.is_day);
+
+            const body = document.body;
+            body.className = ''; 
+            const c = current.weather_code;
+            if(c === 0) body.classList.add('weather-clear');
+            else if(c <= 3) body.classList.add('weather-clouds');
+            else if(c <= 67 || c >= 80) body.classList.add('weather-rain');
+            else if(c >= 71 && c <= 77) body.classList.add('weather-snow');
+            else body.classList.add('default');
+        }
+
+        function decodeWeather(code) {
+            if(code === 0) return { desc: "Clear Sky", icon: d => `https://openweathermap.org/img/wn/${d?'01d':'01n'}@4x.png` };
+            if(code <= 3) return { desc: "Cloudy", icon: d => `https://openweathermap.org/img/wn/${d?'03d':'03n'}@4x.png` };
+            if(code <= 55) return { desc: "Drizzle", icon: d => `https://openweathermap.org/img/wn/09d@4x.png` };
+            if(code <= 65) return { desc: "Rain", icon: d => `https://openweathermap.org/img/wn/10d@4x.png` };
+            if(code <= 77) return { desc: "Snow", icon: d => `https://openweathermap.org/img/wn/13d@4x.png` };
+            if(code >= 95) return { desc: "Storm", icon: d => `https://openweathermap.org/img/wn/11d@4x.png` };
+            return { desc: "Unknown", icon: d => `https://openweathermap.org/img/wn/50d@4x.png` };
+        }
+
+        function updateCharts(data) {
+            if(chartTemp) chartTemp.destroy(); 
+            if(chartHum) chartHum.destroy(); 
+            if(chartPress) chartPress.destroy();
+
+            const hourly = data.hourly;
+            const limit = hourly.time.length; 
+            
+            // --- PLUGIN FOR DAY SEPARATOR LINES (UPDATED to match simple string logic) ---
+            const daySeparatorPlugin = {
+                id: 'daySeparator',
+                afterDatasetsDraw(chart, args, options) {
+                    const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#00f2ff'; 
+                    ctx.setLineDash([5, 5]); 
+
+                    const labels = chart.data.labels;
+                    const meta = chart.getDatasetMeta(0); 
+
+                    labels.forEach((label, index) => {
+                        // Updated check: Look for string starting with specific day keywords
+                        if (typeof label === 'string' && label.includes("Today")) {
+                            const xPos = x.getPixelForValue(index);
+                            if (xPos >= x.left && xPos <= x.right) {
+                                const yPosStart = meta.data[index].y;
+                                ctx.moveTo(xPos, yPosStart);
+                                ctx.lineTo(xPos, bottom);
+                            }
+                        }
+                    });
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            };
+
+            // --- REVERTED X-AXIS LOGIC ---
+            // Only returns single string items now to avoid dual-line rendering issues
+            const labels = hourly.time.slice(0, limit).map((t) => {
+                const d = new Date(t);
+                // Strict check for Midnight (00:00) using raw string if safe, or Date object
+                if (d.getHours() === 0 && d.getMinutes() === 0) {
+                    const now = new Date();
+                    const dZero = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                    const nowZero = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    
+                    const diffTime = dZero - nowZero;
+                    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const year = d.getFullYear();
+                    const dateStr = `${day}/${month}/${year}`;
+
+                    let dayText = "";
+                    if (diffDays === -1) dayText = `Yesterday ${dateStr}`;
+                    else if (diffDays === 0) dayText = `Today ${dateStr}`;
+                    else if (diffDays === 1) dayText = `Tomorrow ${dateStr}`;
+                    else {
+                        const dayName = d.toLocaleDateString('en-GB', { weekday: 'long' });
+                        dayText = `${dayName} ${dateStr}`;
+                    }
+                    return dayText; // Return JUST the Date String
+                }
+                return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); // Return JUST the Time
+            });
+
+            const temps = hourly.temperature_2m.slice(0, limit);
+            const hums = hourly.relative_humidity_2m.slice(0, limit);
+            const press = hourly.surface_pressure.slice(0, limit);
+
+            const common = { borderWidth: 3, tension: 0.4, pointRadius: 0, pointHoverRadius: 8, fill: true, pointBackgroundColor: '#fff' };
+            
+            // X-Axis Config: Added callback to ensure Midnight labels are never hidden by autoSkip
+            const scales = { 
+                x: { 
+                    grid: {display:false}, 
+                    ticks: { 
+                        maxTicksLimit: 24, // Allow more ticks to fit
+                        maxRotation: 0, 
+                        autoSkip: true, // Let ChartJS skip crowded times
+                        color: 'rgba(255,255,255,0.6)', 
+                        font: { size: 10 },
+                        callback: function(val, index) {
+                            // Ensure "Day" labels are always prioritized over time labels
+                            const label = this.getLabelForValue(val);
+                            if (label.includes("Today") || label.includes("Yesterday") || label.includes("Tomorrow") || label.includes("/")) {
+                                return label;
+                            }
+                            // For regular time ticks, let default behavior or simple mod handle it if autoSkip is fussy
+                            if (index % 3 === 0) return label; // Show every 3rd hour for clarity
+                            return null;
+                        }
+                    } 
+                } 
+            };
+            
+            const plugins = (t) => ({ legend: {display:false}, title: {display:true, text:t, color:'#fff', font:{size:16, weight:300}, padding:{bottom:20}} });
+
+            const ctxT = document.getElementById('tempChart').getContext('2d');
+            const grT = ctxT.createLinearGradient(0,0,0,400); grT.addColorStop(0,'rgba(0, 242, 255, 0.4)'); grT.addColorStop(1,'rgba(0, 242, 255, 0)');
+            chartTemp = new Chart(ctxT, { type:'line', data:{labels, datasets:[{...common, label:'Temp (°C)', data:temps, borderColor:'#00f2ff', backgroundColor:grT}]}, plugins: [daySeparatorPlugin], options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false}, plugins:plugins('Temperature Trend'), scales:{...scales, y:{beginAtZero:true, grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'rgba(255,255,255,0.6)'}}}} });
+
+            const ctxH = document.getElementById('humChart').getContext('2d');
+            const grH = ctxH.createLinearGradient(0,0,0,400); grH.addColorStop(0,'rgba(188, 19, 254, 0.4)'); grH.addColorStop(1,'rgba(188, 19, 254, 0)');
+            chartHum = new Chart(ctxH, { type:'line', data:{labels, datasets:[{...common, label:'Humidity (%)', data:hums, borderColor:'#bc13fe', backgroundColor:grH}]}, plugins: [daySeparatorPlugin], options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false}, plugins:plugins('Humidity %'), scales:{...scales, y:{beginAtZero:true, max:100, grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'rgba(255,255,255,0.6)'}}}} });
+
+            const ctxP = document.getElementById('pressChart').getContext('2d');
+            const grP = ctxP.createLinearGradient(0,0,0,400); grP.addColorStop(0,'rgba(10, 255, 96, 0.4)'); grP.addColorStop(1,'rgba(10, 255, 96, 0)');
+            chartPress = new Chart(ctxP, { type:'line', data:{labels, datasets:[{...common, label:'Pressure (hPa)', data:press, borderColor:'#0aff60', backgroundColor:grP}]}, plugins: [daySeparatorPlugin], options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false}, plugins:plugins('Pressure (hPa)'), scales:{...scales, y:{beginAtZero:false, grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'rgba(255,255,255,0.6)'}, grace:'20%'}}} });
+        }
+
+        function showError(msg, bg) {
+            const el = document.getElementById('errorMsg');
+            if(!msg) { el.style.display = 'none'; return; }
+            el.innerText = msg;
+            el.style.background = bg || "rgba(255, 59, 59, 0.9)";
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 3000);
+        }
+
+        function animateValue(id, start, end, duration) {
+            if(isNaN(start)) start = 0;
+            const range = end - start;
+            let current = start;
+            const increment = end > start ? 0.1 : -0.1;
+            const stepTime = Math.abs(Math.floor(duration / (range / increment)));
+            const obj = document.getElementById(id);
+            const timer = setInterval(function() {
+                current += increment;
+                obj.innerHTML = current.toFixed(1);
+                if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
+                    obj.innerHTML = end.toFixed(1);
+                    clearInterval(timer);
+                }
+            }, stepTime > 10 ? 10 : stepTime);
+        }
+    </script>
+</body>
+</html>
